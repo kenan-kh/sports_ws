@@ -6,10 +6,12 @@ function sendjson(socket, data) {
 }
 
 function broadcast(ws, data) {
-  ws.clients.forEach((client) => {
-    if (client.readyState !== WebSocket.OPEN) return;
+   for(const client of ws.clients) {
+    if (client.readyState !== WebSocket.OPEN) {
+      continue;
+    }
     client.send(JSON.stringify(data));
-  });
+  }
 }
 
 export function attachWebSocketServer(server) {
@@ -20,6 +22,12 @@ export function attachWebSocketServer(server) {
   });
 
   wss.on("connection", (socket) => {
+    socket.isalive=true;
+
+    socket.on("pong", () => {
+    socket.isalive = true;
+    });
+
     sendjson(socket, { type: "Welcome" });
 
     socket.on("error", (err) => {
@@ -27,6 +35,20 @@ export function attachWebSocketServer(server) {
     });
   });
 
+  const interval = setInterval(() => {
+    wss.clients.forEach((socket) => {
+      if (socket.isalive === false) {
+        console.log("Terminating unresponsive WebSocket client");
+        return socket.terminate();
+      }
+      socket.isalive = false;
+      socket.ping();
+    });
+  }, 30000) // Ping every 3 minutes;
+
+  wss.on("close", () => {
+    clearInterval(interval);
+  });
 function broadcastMatchCreated(match) {
   broadcast(wss, { type: "MatchCreated", data: match });
 }
