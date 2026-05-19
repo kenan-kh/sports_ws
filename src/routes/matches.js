@@ -45,9 +45,9 @@ const parsed = createMatchSchema.safeParse(req.body);
             status: getMatchStatus(startTime, endTime),
         }).returning();
 
-        // if(res.app.locals.broadcastMatchCreated) {
-        //     res.app.locals.broadcastMatchCreated(event);
-        // }
+        if(res.app.locals.broadcastMatchCreated) {
+            res.app.locals.broadcastMatchCreated(event);
+        }
 
         res.status(201).json({ data: event });
     } catch (e) {
