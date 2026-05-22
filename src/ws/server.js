@@ -1,4 +1,5 @@
 import { WebSocket, WebSocketServer } from "ws";
+import { wsarcjet } from "../../arcjet.js";  
 
 function sendjson(socket, data) {
   if (socket.readyState !== WebSocket.OPEN) return;
@@ -21,8 +22,25 @@ export function attachWebSocketServer(server) {
     maxPayload: 1024 * 1024, // 1MB
   });
 
-  wss.on("connection", (socket) => {
+  wss.on("connection", (socket,req) => {
+  if(wsarcjet) {
+    try {
+      const decision = wsarcjet.protect(req);
+
+      if(decision.isDenied()) {
+        const code = decision.reason.isRateLimit() ? 1008 : 1003; // 1008: Policy Violation, 1003: Unsupported Data
+        const reason = decision.reason.isRateLimit() ? "Rate limit exceeded" : "access denied by Arcjet";
+        socket.close(code, reason);
+        return;
+      }
+    }catch (err) {
+        console.error("Arcjet WebSocket protection error:", err);
+        socket.close(1011, "server security error");
+        return;
+      }
+
     socket.isalive=true;
+    }
 
     socket.on("pong", () => {
     socket.isalive = true;

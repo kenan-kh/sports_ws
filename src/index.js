@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'http';
 import {router as matchesRouter} from './routes/matches.js'
 import { attachWebSocketServer } from './ws/server.js';
+import{securityMiddleware} from '../arcjet.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -10,7 +11,7 @@ const wss = attachWebSocketServer(server);
 const port = 8000;
 const host = '0.0.0.0';
 app.use(express.json());
-
+app.use(securityMiddleware()); // إضافة Middleware الحماية قبل تعريف أي مسارات
 app.get('/', (req, res) => {
   res.json({ message: 'Hello from Express on port 8000!' });
 });
