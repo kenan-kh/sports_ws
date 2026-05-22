@@ -17,33 +17,49 @@ function broadcast(ws, data) {
 
 export function attachWebSocketServer(server) {
   const wss = new WebSocketServer({
-    server,
+    noServer: true, // نتحكم يدويًا في عملية الـ upgrade
     path: "/ws",
     maxPayload: 1024 * 1024, // 1MB
   });
 
-  wss.on("connection", (socket,req) => {
-  if(wsarcjet) {
-    try {
-      const decision = wsarcjet.protect(req);
+  // --- التعديل الجوهري: فحص الحماية قبل قبول الاتصال ---
+  server.on("upgrade", async (req, socket, head) => {
+    const { pathname } = new URL(req.url, `http://${req.headers.host}`);
 
-      if(decision.isDenied()) {
-        const code = decision.reason.isRateLimit() ? 1008 : 1003; // 1008: Policy Violation, 1003: Unsupported Data
-        const reason = decision.reason.isRateLimit() ? "Rate limit exceeded" : "access denied by Arcjet";
-        socket.close(code, reason);
+    if (pathname === "/ws" && wsarcjet) {
+      try {
+        const decision = await wsarcjet.protect(req);
+
+        if (decision.isDenied()) {
+          if(decision.reason.isRateLimit()) {
+            socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
+          }
+          else {
+          socket.write(`HTTP/1.1 ${code} Forbidden\r\n\r\n`);
+          }
+          socket.destroy();
+          return;
+        }
+      } catch (err) {
+        console.error("Arcjet protection error during upgrade:", err);
+        socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        socket.destroy();
         return;
       }
-    }catch (err) {
-        console.error("Arcjet WebSocket protection error:", err);
-        socket.close(1011, "server security error");
-        return;
-      }
-
-    socket.isalive=true;
     }
 
-    socket.on("pong", () => {
+    // إذا مر الفحص، نقوم بإتمام الـ upgrade
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit("connection", ws, req);
+    });
+  });
+
+  wss.on("connection", (socket) => {
+    // تم الفحص مسبقًا، هنا يبدأ منطق العمل مباشرة
     socket.isalive = true;
+
+    socket.on("pong", () => {
+      socket.isalive = true;
     });
 
     sendjson(socket, { type: "Welcome" });
@@ -53,24 +69,26 @@ export function attachWebSocketServer(server) {
     });
   });
 
+  // --- منطق الـ Interval والـ Broadcast يبقى كما هو ---
   const interval = setInterval(() => {
     wss.clients.forEach((socket) => {
       if (socket.isalive === false) {
-        console.log("Terminating unresponsive WebSocket client");
         return socket.terminate();
       }
       socket.isalive = false;
       socket.ping();
     });
-  }, 30000) // Ping every 3 minutes;
+  }, 30000);
 
   wss.on("close", () => {
     clearInterval(interval);
   });
-function broadcastMatchCreated(match) {
-  broadcast(wss, { type: "MatchCreated", data: match });
-}
-return {
-  broadcastMatchCreated,
-};
+
+  function broadcastMatchCreated(match) {
+    broadcast(wss, { type: "MatchCreated", data: match });
+  }
+
+  return {
+    broadcastMatchCreated,
+  };
 }
